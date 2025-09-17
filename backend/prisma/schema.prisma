@@ -1,0 +1,112 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  name      String
+  email     String   @unique
+  password  String
+  roleId    String   @db.ObjectId
+  role      Role     @relation(fields: [roleId], references: [id])
+  projects  Project[]  @relation("UserProjects") // projects owned
+  works     WorkAssignment[]
+  teams     UserTeam[]
+}
+
+model Role {
+  id      String @id @default(auto()) @map("_id") @db.ObjectId
+  name    String @unique
+  users   User[]
+}
+
+model Team {
+  id          String       @id @default(auto()) @map("_id") @db.ObjectId
+  name        String
+  description String?
+  users       UserTeam[]
+  projects    ProjectTeam[]
+  works       WorkTeam[]
+}
+
+model Project {
+  id          String        @id @default(auto()) @map("_id") @db.ObjectId
+  name        String
+  description String?
+  createdAt   DateTime      @default(now())
+  ownerId     String        @db.ObjectId
+  owner       User          @relation("UserProjects", fields: [ownerId], references: [id])
+  works       Work[]
+  teams       ProjectTeam[]
+}
+
+model Work {
+  id          String         @id @default(auto()) @map("_id") @db.ObjectId
+  description String
+  duration    Int
+  goal        String
+  dueDate     DateTime
+  progressTrackingMethod String
+  projectId   String         @db.ObjectId
+  project     Project        @relation(fields: [projectId], references: [id])
+  teams       WorkTeam[]
+  assignees   WorkAssignment[]
+  tasks       Task[]
+  gitRepositoryUrl String?
+  gitBranch   String?
+}
+
+model Task {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  title       String
+  description String?
+  status      String
+  dueDate     DateTime?
+  workId      String   @db.ObjectId
+  work        Work     @relation(fields: [workId], references: [id])
+}
+
+//
+// ---------- JOIN MODELS (for many-to-many) ----------
+//
+
+model UserTeam {
+  id     String @id @default(auto()) @map("_id") @db.ObjectId
+  userId String @db.ObjectId
+  teamId String @db.ObjectId
+
+  user User @relation(fields: [userId], references: [id])
+  team Team @relation(fields: [teamId], references: [id])
+}
+
+model ProjectTeam {
+  id        String @id @default(auto()) @map("_id") @db.ObjectId
+  projectId String @db.ObjectId
+  teamId    String @db.ObjectId
+
+  project Project @relation(fields: [projectId], references: [id])
+  team    Team    @relation(fields: [teamId], references: [id])
+}
+
+model WorkTeam {
+  id      String @id @default(auto()) @map("_id") @db.ObjectId
+  workId  String @db.ObjectId
+  teamId  String @db.ObjectId
+
+  work Work @relation(fields: [workId], references: [id])
+  team Team @relation(fields: [teamId], references: [id])
+}
+
+model WorkAssignment {
+  id     String @id @default(auto()) @map("_id") @db.ObjectId
+  userId String @db.ObjectId
+  workId String @db.ObjectId
+
+  user User @relation(fields: [userId], references: [id])
+  work Work @relation(fields: [workId], references: [id])
+}
