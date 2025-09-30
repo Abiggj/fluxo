@@ -1,71 +1,99 @@
 const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 
-exports.createProject = async (req, res) => {
-  try {
-    const { name, description } = req.body;
+exports.createProject = async (req, res, next) => {
+  const { name, description } = req.body;
+  const { id: ownerId } = req.user;
 
+  try {
     const project = await prisma.project.create({
       data: {
         name,
         description,
-        ownerId: req.user.id,
+        ownerId,
+        members: {
+          create: {
+            userId: ownerId,
+          },
+        },
       },
     });
-
     res.status(201).json(project);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 };
 
-exports.getProjects = async (req, res) => {
+exports.getProjects = async (req, res, next) => {
   try {
     const projects = await prisma.project.findMany({
-      include: { owner: true, teams: true, works: true },
+      where: {
+        members: {
+          some: {
+            userId: req.user.id,
+          },
+        },
+      },
     });
     res.json(projects);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 };
 
-exports.getProjectById = async (req, res) => {
+exports.getProjectById = async (req, res, next) => {
+  const { id } = req.params;
   try {
-    const project = await prisma.project.findUnique({
-      where: { id: req.params.id },
-      include: { owner: true, teams: true, works: true },
+    const project = await prisma.project.findFirst({
+      where: {
+        id,
+        members: {
+          some: {
+            userId: req.user.id,
+          },
+        },
+      },
+      include: {
+        members: {
+          include: {
+            user: true,
+          },
+        },
+        works: true,
+        teams: true,
+      },
     });
-    if (!project) return res.status(404).json({ error: "Project not found" });
+
+    if (!project) {
+      return res.status(404).json({ message: "Project not found" });
+    }
 
     res.json(project);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 };
 
-// Update Project
-exports.updateProject = async (req, res) => {
+exports.updateProject = async (req, res, next) => {
+  const { id } = req.params;
+  const { name, description } = req.body;
   try {
-    const { name, description } = req.body;
     const project = await prisma.project.update({
-      where: { id: req.params.id },
+      where: { id },
       data: { name, description },
     });
     res.json(project);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 };
 
-// Delete Project
-exports.deleteProject = async (req, res) => {
+exports.deleteProject = async (req, res, next) => {
+  const { id } = req.params;
   try {
-    await prisma.project.delete({ where: { id: req.params.id } });
+    await prisma.project.delete({ where: { id } });
     res.json({ message: "Project deleted" });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 };
-
-

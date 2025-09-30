@@ -1,43 +1,52 @@
 const jwt = require("jsonwebtoken");
+const { PrismaClient } = require("@prisma/client");
+const prisma = new PrismaClient();
 
-exports.authMiddleware = (req, res, next) => {
-  const token = req.headers["authorization"]?.split(" ")[1];
+const JWT_SECRET = process.env.JWT_SECRET;
 
-  if (!token){
-    return res.status(401).json({ error: "Unauthorised"});
-  }
+const protect = async (req, res, next) => {
+  let token;
 
-  try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+  if (
+    req.headers.authorization &&
+    req.headers.authorization.startsWith("Bearer")
+  ) {
+    try {
+      token = req.headers.authorization.split(" ")[1];
 
-    const user = await prisma.user.findUnique({
-      where: { id: decoded.id},
-      include: { role: true},
-    });
+      const decoded = jwt.verify(token, JWT_SECRET);
 
-    if (!user) return res.status(404).json({ message: "User not found"});
-    
-    req.user = {
-      id: user.id,
-      email: user.email,
-      role: user.role.name,
-    };
+      req.user = await prisma.user.findUnique({
+        where: { id: decoded.id },
+        include: { role: { include: { permissions: true } } },
+      });
 
-    next();
-  } catch (err) {
-    return res.status(403).json({ error: "Invalid authentication"})
-  }
-} 
-
-exports.authorizeRoles = (...allowedRoles) => {
-  return (req, res, next) => {
-    if (!req.user) return res.status(401).json({ error: "Unauthorised"});
-  
-
-    if (!allowedRoles.includes(req.user.role)){
-      return res.status(403).json({ error: "Forbidden: insufficient role"});
+      next();
+    } catch (error) {
+      console.error(error);
+      return res.status(401).json({ message: "Not authorized, token failed" });
     }
+  }
 
-    next();
+  if (!token) {
+    return res.status(401).json({ message: "Not authorized, no token" });
+  }
+};
+
+const authorize = (...permissions) => {
+  return (req, res, next) => {
+    if (!req.user || !req.user.role || !req.user.role.permissions) {
+      return res.status(403).json({ message: "Forbidden: user role or permissions not available" });
+    }
+    const userPermissions = req.user.role.permissions.map((p) => p.name);
+    const hasPermission = permissions.every((p) => userPermissions.includes(p));
+
+    if (hasPermission) {
+      next();
+    } else {
+      res.status(403).json({ message: "Forbidden: insufficient permissions" });
+    }
   };
 };
+
+module.exports = { protect, authorize };

@@ -4,39 +4,60 @@ const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 
 const JWT_SECRET = process.env.JWT_SECRET;
+const SALT_ROUNDS = parseInt(process.env.BCRYPT_SALT_ROUNDS, 10);
 
-exports.register = async (req, res) => {
+const generateToken = (user) => {
+  return jwt.sign({ id: user.id, role: user.role.name }, JWT_SECRET, { expiresIn: "7d" });
+};
+
+const formatUser = (user) => {
+  const { password, ...userWithoutPassword } = user;
+  return userWithoutPassword;
+};
+
+exports.register = async (req, res, next) => {
   try {
-    const {name, email, password, roleId} = req.body;
-    
-    const existingUser = await prisma.user.findUnique({ where: {email}});
-    if ( existingUser ) return res.status(400).json({ message: "User already exists"});
+    const { name, email, password, roleId } = req.body;
 
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const existingUser = await prisma.user.findUnique({ where: { email } });
+    if (existingUser) {
+      return res.status(400).json({ message: "User already exists" });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
 
     const user = await prisma.user.create({
-      data: { name, email, password: hashedPassword, roleId}
+      data: { name, email, password: hashedPassword, roleId },
+      include: { role: true },
     });
-    res.status(201).json({ message: "User registered successfully", user:{ id: user.id, email: user.email}});
+
+    const token = generateToken(user);
+    res.status(201).json({ token, user: formatUser(user) });
   } catch (err) {
-    res.status(500).json({ error: err.message});
+    next(err);
   }
 };
 
-exports.login = async (req, res) => {
-  try{
+exports.login = async (req, res, next) => {
+  try {
     const { email, password } = req.body;
 
-    const user = await prisma.user.findUnique({ where: {email}});
-    if (!user) return res.status(404).json({ message: "User not found"});
+    const user = await prisma.user.findUnique({ 
+      where: { email },
+      include: { role: true },
+    });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
 
     const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) return res.status(400).json({ message: "Invalid credentials"});
+    if (!isMatch) {
+      return res.status(400).json({ message: "Invalid credentials" });
+    }
 
-    const token = jwt.sign({ id: user.id, roleId: user.roleId}, JWT_SECRET, {expiresIn: "7d"});
-
-    res.json({token, user: { id:user.id, email:user.email, roleId: user.roleId}});
+    const token = generateToken(user);
+    res.json({ token, user: formatUser(user) });
   } catch (err) {
-    res.status(500).json({error: err.message})
+    next(err);
   }
 };

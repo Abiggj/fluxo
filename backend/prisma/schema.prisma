@@ -3,110 +3,153 @@ generator client {
 }
 
 datasource db {
-  provider = "mongodb"
+  provider = "mysql"
   url      = env("DATABASE_URL")
 }
 
 model User {
-  id        String   @id @default(auto()) @map("_id") @db.ObjectId
-  name      String
-  email     String   @unique
-  password  String
-  roleId    String   @db.ObjectId
-  role      Role     @relation(fields: [roleId], references: [id])
-  projects  Project[]  @relation("UserProjects") // projects owned
-  works     WorkAssignment[]
-  teams     UserTeam[]
+  id          Int          @id @default(autoincrement())
+  name        String
+  email       String       @unique
+  password    String
+  roleId      Int
+  role        Role         @relation(fields: [roleId], references: [id])
+  projects    Project[]    @relation("UserProjects")
+  works       Work[]       @relation("WorkAssignments")
+  teams       Team[]       @relation("UserTeams")
+  invitations Invitation[] @relation("InvitedUser")
+  comments    Comment[]
+  memberOf    Project[]    @relation("ProjectMembers")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([roleId])
+  @@index([email])
 }
 
 model Role {
-  id      String @id @default(auto()) @map("_id") @db.ObjectId
-  name    String @unique
-  users   User[]
+  id          Int          @id @default(autoincrement())
+  name        String       @unique
+  permissions Permission[] @relation("RolePermissions")
+  users       User[]
+  invitations Invitation[]
+}
+
+model Permission {
+  id    Int    @id @default(autoincrement())
+  name  String @unique
+  roles Role[] @relation("RolePermissions")
+}
+
+model Invitation {
+  id         Int              @id @default(autoincrement())
+  email      String
+  inviter    User             @relation("InvitedUser", fields: [inviterId], references: [id])
+  inviterId  Int
+  project    Project          @relation(fields: [projectId], references: [id])
+  projectId  Int
+  role       Role             @relation(fields: [roleId], references: [id])
+  roleId     Int
+  status     InvitationStatus @default(PENDING)
+  createdAt  DateTime         @default(now())
+  acceptedAt DateTime?
+
+  @@unique([email, projectId])
+  @@index([inviterId])
+  @@index([projectId])
+  @@index([roleId])
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
 }
 
 model Team {
-  id          String       @id @default(auto()) @map("_id") @db.ObjectId
+  id          Int       @id @default(autoincrement())
   name        String
-  description String?
-  users       UserTeam[]
-  projects    ProjectTeam[]
-  works       WorkTeam[]
+  description String?   @db.Text
+  users       User[]    @relation("UserTeams")
+  projects    Project[] @relation("ProjectTeams")
+  works       Work[]    @relation("WorkTeams")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Project {
-  id          String        @id @default(auto()) @map("_id") @db.ObjectId
+  id          Int          @id @default(autoincrement())
   name        String
-  description String?
-  createdAt   DateTime      @default(now())
-  ownerId     String        @db.ObjectId
-  owner       User          @relation("UserProjects", fields: [ownerId], references: [id])
+  description String?      @db.Text
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  ownerId     Int
+  owner       User         @relation("UserProjects", fields: [ownerId], references: [id])
   works       Work[]
-  teams       ProjectTeam[]
+  teams       Team[]       @relation("ProjectTeams")
+  members     User[]       @relation("ProjectMembers")
+  comments    Comment[]
+  invitations Invitation[]
+
+  @@index([ownerId])
 }
 
 model Work {
-  id          String         @id @default(auto()) @map("_id") @db.ObjectId
-  description String
-  duration    Int
-  goal        String
-  dueDate     DateTime
+  id                     Int      @id @default(autoincrement())
+  description            String   @db.Text
+  duration               Int
+  goal                   String   @db.Text
+  dueDate                DateTime
   progressTrackingMethod String
-  projectId   String         @db.ObjectId
-  project     Project        @relation(fields: [projectId], references: [id])
-  teams       WorkTeam[]
-  assignees   WorkAssignment[]
-  tasks       Task[]
-  gitRepositoryUrl String?
-  gitBranch   String?
+  projectId              Int
+  project                Project  @relation(fields: [projectId], references: [id])
+  teams                  Team[]   @relation("WorkTeams")
+  assignees              User[]   @relation("WorkAssignments")
+  tasks                  Task[]
+  gitRepositoryUrl       String?
+  gitBranch              String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([projectId])
+  @@index([dueDate])
 }
 
 model Task {
-  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  id          Int       @id @default(autoincrement())
   title       String
-  description String?
+  description String?   @db.Text
   status      String
   dueDate     DateTime?
-  workId      String   @db.ObjectId
-  work        Work     @relation(fields: [workId], references: [id])
+  workId      Int
+  work        Work      @relation(fields: [workId], references: [id])
+  comments    Comment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([workId])
+  @@index([status])
+  @@index([dueDate])
 }
 
-//
-// ---------- JOIN MODELS (for many-to-many) ----------
-//
+model Comment {
+  id        Int      @id @default(autoincrement())
+  content   String   @db.Text
+  author    User     @relation(fields: [authorId], references: [id])
+  authorId  Int
+  task      Task?    @relation(fields: [taskId], references: [id])
+  taskId    Int?
+  project   Project? @relation(fields: [projectId], references: [id])
+  projectId Int?
 
-model UserTeam {
-  id     String @id @default(auto()) @map("_id") @db.ObjectId
-  userId String @db.ObjectId
-  teamId String @db.ObjectId
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  user User @relation(fields: [userId], references: [id])
-  team Team @relation(fields: [teamId], references: [id])
-}
-
-model ProjectTeam {
-  id        String @id @default(auto()) @map("_id") @db.ObjectId
-  projectId String @db.ObjectId
-  teamId    String @db.ObjectId
-
-  project Project @relation(fields: [projectId], references: [id])
-  team    Team    @relation(fields: [teamId], references: [id])
-}
-
-model WorkTeam {
-  id      String @id @default(auto()) @map("_id") @db.ObjectId
-  workId  String @db.ObjectId
-  teamId  String @db.ObjectId
-
-  work Work @relation(fields: [workId], references: [id])
-  team Team @relation(fields: [teamId], references: [id])
-}
-
-model WorkAssignment {
-  id     String @id @default(auto()) @map("_id") @db.ObjectId
-  userId String @db.ObjectId
-  workId String @db.ObjectId
-
-  user User @relation(fields: [userId], references: [id])
-  work Work @relation(fields: [workId], references: [id])
+  @@index([authorId])
+  @@index([taskId])
+  @@index([projectId])
 }
