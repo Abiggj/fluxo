@@ -1,0 +1,6 @@
+console.log(require("dotenv").config())
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
+
+export default prisma;

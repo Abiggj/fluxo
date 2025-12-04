@@ -1,155 +1,288 @@
+// schema.prisma
+
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
   provider = "mysql"
-  url      = env("DATABASE_URL")
+  url = env("DATABASE_URL")
+}
+
+// =========================
+// Enums
+// =========================
+
+enum OrgRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum ProjectRole {
+  MANAGER
+  DESIGNER
+  DEVELOPER
+  QA
+  VIEWER
+}
+
+enum ProjectStatus {
+  PLANNED
+  ACTIVE
+  ON_HOLD
+  COMPLETED
+  ARCHIVED
+}
+
+enum SprintStatus {
+  PLANNED
+  ACTIVE
+  COMPLETED
+}
+
+enum TaskType {
+  GOAL_BASED
+  DURATION_BASED
+}
+
+enum TaskStatus {
+  ASSIGNED
+  IN_REVIEW
+  COMPLETED
+  DUE
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+// =========================
+// Core models
+// =========================
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  users     User[]
+  projects  Project[]
+  labels    Label[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model User {
-  id          Int          @id @default(autoincrement())
-  name        String
-  email       String       @unique
-  password    String
-  roleId      Int
-  role        Role         @relation(fields: [roleId], references: [id])
-  projects    Project[]    @relation("UserProjects")
-  works       Work[]       @relation("WorkAssignments")
-  teams       Team[]       @relation("UserTeams")
-  invitations Invitation[] @relation("InvitedUser")
-  comments    Comment[]
-  memberOf    Project[]    @relation("ProjectMembers")
+  id           String       @id @default(cuid())
+  email        String       @unique
+  name         String
+  passwordHash String
+  avatarUrl    String?
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  org          Organization @relation(fields: [orgId], references: [id])
+  orgId        String
+  orgRole      OrgRole      @default(MEMBER)
 
-  @@index([roleId])
-  @@index([email])
-}
+  // Project membership
+  projectMemberships ProjectMember[]
 
-model Role {
-  id          Int          @id @default(autoincrement())
-  name        String       @unique
-  permissions Permission[] @relation("RolePermissions")
-  users       User[]
-  invitations Invitation[]
-}
+  // Tasks
+  createdTasks   Task[] @relation("CreatedTasks")
+  assignedTasks  Task[] @relation("AssignedTasks")
+  reviewedTasks  Task[] @relation("ReviewedTasks")
 
-model Permission {
-  id    Int    @id @default(autoincrement())
-  name  String @unique
-  roles Role[] @relation("RolePermissions")
-}
+  // Other relations
+  comments       TaskComment[]
+  statusChanges  TaskStatusHistory[]
 
-model Invitation {
-  id         Int              @id @default(autoincrement())
-  email      String
-  inviter    User             @relation("InvitedUser", fields: [inviterId], references: [id])
-  inviterId  Int
-  project    Project          @relation(fields: [projectId], references: [id])
-  projectId  Int
-  role       Role             @relation(fields: [roleId], references: [id])
-  roleId     Int
-  status     InvitationStatus @default(PENDING)
-  createdAt  DateTime         @default(now())
-  acceptedAt DateTime?
-
-  @@unique([email, projectId])
-  @@index([inviterId])
-  @@index([projectId])
-  @@index([roleId])
-}
-
-enum InvitationStatus {
-  PENDING
-  ACCEPTED
-  DECLINED
-}
-
-model Team {
-  id          Int       @id @default(autoincrement())
-  name        String
-  description String?   @db.Text
-  users       User[]    @relation("UserTeams")
-  projects    Project[] @relation("ProjectTeams")
-  works       Work[]    @relation("WorkTeams")
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 }
 
 model Project {
-  id          Int          @id @default(autoincrement())
-  name        String
-  description String?      @db.Text
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-  ownerId     Int
-  owner       User         @relation("UserProjects", fields: [ownerId], references: [id])
-  works       Work[]
-  teams       Team[]       @relation("ProjectTeams")
-  members     User[]       @relation("ProjectMembers")
-  comments    Comment[]
-  invitations Invitation[]
+  id          String          @id @default(cuid())
+  org         Organization    @relation(fields: [orgId], references: [id])
+  orgId       String
 
-  @@index([ownerId])
+  name        String
+  key         String?         @unique
+  description String?
+
+  startDate   DateTime?
+  endDate     DateTime?
+  status      ProjectStatus   @default(ACTIVE)
+
+  members     ProjectMember[]
+  sprints     Sprint[]
+  tasks       Task[]
+
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
 }
 
-model Work {
-  id                     Int      @id @default(autoincrement())
-  description            String   @db.Text
-  duration               Int
-  goal                   String   @db.Text
-  dueDate                DateTime
-  progressTrackingMethod String
-  projectId              Int
-  project                Project  @relation(fields: [projectId], references: [id])
-  teams                  Team[]   @relation("WorkTeams")
-  assignees              User[]   @relation("WorkAssignments")
-  tasks                  Task[]
-  gitRepositoryUrl       String?
-  gitBranch              String?
+model ProjectMember {
+  id        String       @id @default(cuid())
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  user      User         @relation(fields: [userId], references: [id])
+  userId    String
 
-  @@index([projectId])
-  @@index([dueDate])
+  project   Project      @relation(fields: [projectId], references: [id])
+  projectId String
+
+  role      ProjectRole
+
+  createdAt DateTime     @default(now())
+
+  @@unique([userId, projectId]) // one membership per user per project
+}
+
+// =========================
+// Sprints & Tasks
+// =========================
+
+model Sprint {
+  id        String       @id @default(cuid())
+  project   Project      @relation(fields: [projectId], references: [id])
+  projectId String
+
+  name      String
+  goal      String?
+
+  startDate DateTime
+  endDate   DateTime
+  status    SprintStatus @default(PLANNED)
+
+  tasks     Task[]
+
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
 }
 
 model Task {
-  id          Int       @id @default(autoincrement())
+  id          String        @id @default(cuid())
+
+  project     Project       @relation(fields: [projectId], references: [id])
+  projectId   String
+
+  sprint      Sprint?       @relation(fields: [sprintId], references: [id])
+  sprintId    String?
+
   title       String
-  description String?   @db.Text
-  status      String
-  dueDate     DateTime?
-  workId      Int
-  work        Work      @relation(fields: [workId], references: [id])
-  comments    Comment[]
+  description String?
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  type        TaskType
+  status      TaskStatus    @default(ASSIGNED)
+  priority    TaskPriority  @default(MEDIUM)
 
-  @@index([workId])
-  @@index([status])
-  @@index([dueDate])
+  // Assignee & creator & reviewer
+  assignee    User?         @relation("AssignedTasks", fields: [assigneeId], references: [id])
+  assigneeId  String?
+
+  createdBy   User          @relation("CreatedTasks", fields: [createdById], references: [id])
+  createdById String
+
+  reviewer    User?         @relation("ReviewedTasks", fields: [reviewerId], references: [id])
+  reviewerId  String?
+
+  // Goal-based & duration-based fields
+  goal        String?       // describes the goal (for GOAL_BASED)
+  startDate   DateTime?     // for DURATION_BASED tasks
+  dueDate     DateTime?     // used to determine DUE status
+
+  estimatedHours Float?
+  actualHours    Float?
+
+  // Relations
+  statusHistory TaskStatusHistory[]
+  comments      TaskComment[]
+  attachments   TaskAttachment[]
+  labels        TaskLabel[]
+
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  deletedAt   DateTime?
 }
 
-model Comment {
-  id        Int      @id @default(autoincrement())
-  content   String   @db.Text
+// =========================
+// Tracking & collaboration
+// =========================
+
+model TaskStatusHistory {
+  id          String      @id @default(cuid())
+
+  task        Task        @relation(fields: [taskId], references: [id])
+  taskId      String
+
+  fromStatus  TaskStatus?
+  toStatus    TaskStatus
+
+  changedBy   User        @relation(fields: [changedById], references: [id])
+  changedById String
+
+  changedAt   DateTime    @default(now())
+  note        String?
+}
+
+model TaskComment {
+  id        String   @id @default(cuid())
+
+  task      Task     @relation(fields: [taskId], references: [id])
+  taskId    String
+
   author    User     @relation(fields: [authorId], references: [id])
-  authorId  Int
-  task      Task?    @relation(fields: [taskId], references: [id])
-  taskId    Int?
-  project   Project? @relation(fields: [projectId], references: [id])
-  projectId Int?
+  authorId  String
+
+  body      String
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
 
-  @@index([authorId])
-  @@index([taskId])
-  @@index([projectId])
+model TaskAttachment {
+  id        String   @id @default(cuid())
+
+  task      Task     @relation(fields: [taskId], references: [id])
+  taskId    String
+
+  url       String
+  fileName  String
+  mimeType  String?
+  sizeBytes Int?
+
+  createdAt DateTime @default(now())
+}
+
+// =========================
+// Labels / tags
+// =========================
+
+model Label {
+  id        String     @id @default(cuid())
+
+  org       Organization @relation(fields: [orgId], references: [id])
+  orgId     String
+
+  name      String
+  color     String?
+
+  tasks     TaskLabel[]
+
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  @@unique([orgId, name])
+}
+
+model TaskLabel {
+  task    Task  @relation(fields: [taskId], references: [id])
+  taskId  String
+
+  label   Label @relation(fields: [labelId], references: [id])
+  labelId String
+
+  @@id([taskId, labelId])
 }
