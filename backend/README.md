@@ -134,3 +134,50 @@ Routes for managing users.
 | `DELETE`| `/users/:id`     | Deletes a user.          | Org `OWNER`/`ADMIN` |
 
 ---
+
+---
+
+## Database Schema
+
+The database schema is defined using Prisma. It consists of several models that represent the core entities of the Fluxo application.
+
+### Enums
+
+- **OrgRole**: Defines the roles a user can have within an organization (`OWNER`, `ADMIN`, `MEMBER`, `GUEST`).
+- **ProjectRole**: Defines the roles a user can have within a project (`MANAGER`, `DESIGNER`, `DEVELOPER`, `QA`, `VIEWER`).
+- **ProjectStatus**: Represents the lifecycle of a project (`PLANNED`, `ACTIVE`, `ON_HOLD`, `COMPLETED`, `ARCHIVED`).
+- **SprintStatus**: Represents the status of a sprint (`PLANNED`, `ACTIVE`, `COMPLETED`).
+- **TaskType**: Differentiates tasks based on their goal (`GOAL_BASED`, `DURATION_BASED`).
+- **TaskStatus**: Tracks the progress of a task (`ASSIGNED`, `IN_REVIEW`, `COMPLETED`, `DUE`).
+- **TaskPriority**: Represents the urgency of a task (`LOW`, `MEDIUM`, `HIGH`, `CRITICAL`).
+- **ChangeRequestStatus**: Represents the status of a change request (`PENDING`, `APPROVED`, `REJECTED`, `IMPLEMENTED`, `CLOSED`).
+- **ApprovalStatus**: Represents the status of an approval on a change request (`PENDING`, `APPROVED`, `REJECTED`).
+- **ActivityType**: Describes the type of activity that occurred for auditing purposes.
+
+### Core Models
+
+- **Organization**: Represents a company or a team. It has users, projects, and labels.
+- **User**: Represents an individual user. A user belongs to one organization and can be a member of multiple projects.
+- **Project**: Represents a project within an organization. It has members, sprints, tasks, and change requests.
+- **ProjectMember**: A through-model that links a `User` to a `Project` and defines their `ProjectRole`.
+
+### Sprints & Tasks
+
+- **Sprint**: A time-boxed period within a project to complete a set of tasks.
+- **Task**: A unit of work to be done within a project. It can be assigned to a user and has a status, priority, and type.
+
+### Change Management
+
+- **ChangeRequest**: A formal proposal to modify a project. It requires approvals.
+- **ChangeRequestApproval**: Records the approval status from a reviewer for a specific `ChangeRequest`.
+
+### Generic Collaboration & Audit
+
+- **Comment**: A generic model for adding comments to various resources like tasks, projects, sprints, and change requests. It uses a polymorphic relation to associate with different models.
+- **Activity**: A generic model for logging activities (e.g., creating a task, changing a status). It also uses a polymorphic relation.
+
+### Attachments & Labels
+
+- **TaskAttachment**: Represents a file attached to a task.
+- **Label**: A tag that can be applied to tasks for categorization.
+- **TaskLabel**: A through-model that links a `Task` to a `Label`.
