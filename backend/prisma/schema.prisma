@@ -6,7 +6,7 @@ generator client {
 
 datasource db {
   provider = "mysql"
-  url = env("DATABASE_URL")
+  url      = env("DATABASE_URL")
 }
 
 // =========================
@@ -17,6 +17,7 @@ enum OrgRole {
   OWNER
   ADMIN
   MEMBER
+  GUEST
 }
 
 enum ProjectRole {
@@ -60,6 +61,48 @@ enum TaskPriority {
   CRITICAL
 }
 
+enum ChangeRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  IMPLEMENTED
+  CLOSED
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum ActivityType {
+  // Project Activities
+  PROJECT_CREATED
+  PROJECT_UPDATED
+  PROJECT_STATUS_CHANGED
+  PROJECT_MEMBER_ADDED
+  PROJECT_MEMBER_REMOVED
+  PROJECT_MEMBER_ROLE_CHANGED
+
+  // Task Activities
+  TASK_CREATED
+  TASK_UPDATED
+  TASK_STATUS_CHANGED
+  TASK_ASSIGNEE_CHANGED
+  TASK_PRIORITY_CHANGED
+
+  // Comment Activities
+  COMMENT_CREATED
+  COMMENT_UPDATED
+  COMMENT_DELETED
+
+  // Change Request Activities
+  CHANGE_REQUEST_CREATED
+  CHANGE_REQUEST_APPROVED
+  CHANGE_REQUEST_REJECTED
+  CHANGE_REQUEST_IMPLEMENTED
+}
+
 // =========================
 // Core models
 // =========================
@@ -77,30 +120,29 @@ model Organization {
 }
 
 model User {
-  id           String       @id @default(cuid())
-  email        String       @unique
-  name         String
-  passwordHash String
-  avatarUrl    String?
+  id                 String                 @id @default(cuid())
+  email              String                 @unique
+  name               String
+  passwordHash       String
+  avatarUrl          String?
 
-  org          Organization @relation(fields: [orgId], references: [id])
-  orgId        String
-  orgRole      OrgRole      @default(MEMBER)
+  org                Organization           @relation(fields: [orgId], references: [id])
+  orgId              String
+  orgRole            OrgRole                @default(MEMBER)
 
-  // Project membership
   projectMemberships ProjectMember[]
+  createdTasks       Task[]                 @relation("CreatedTasks")
+  assignedTasks      Task[]                 @relation("AssignedTasks")
+  reviewedTasks      Task[]                 @relation("ReviewedTasks")
 
-  // Tasks
-  createdTasks   Task[] @relation("CreatedTasks")
-  assignedTasks  Task[] @relation("AssignedTasks")
-  reviewedTasks  Task[] @relation("ReviewedTasks")
+  // New Relations
+  comments           Comment[]
+  activities         Activity[]
+  changeRequests     ChangeRequest[]
+  approvals          ChangeRequestApproval[]
 
-  // Other relations
-  comments       TaskComment[]
-  statusChanges  TaskStatusHistory[]
-
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
 }
 
 model Project {
@@ -120,24 +162,25 @@ model Project {
   sprints     Sprint[]
   tasks       Task[]
 
+  // New Relations
+  changeRequests ChangeRequest[]
+  activities     Activity[]
+  comments       Comment[]
+
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
 }
 
 model ProjectMember {
   id        String       @id @default(cuid())
-
   user      User         @relation(fields: [userId], references: [id])
   userId    String
-
   project   Project      @relation(fields: [projectId], references: [id])
   projectId String
-
   role      ProjectRole
-
   createdAt DateTime     @default(now())
 
-  @@unique([userId, projectId]) // one membership per user per project
+  @@unique([userId, projectId])
 }
 
 // =========================
@@ -148,129 +191,165 @@ model Sprint {
   id        String       @id @default(cuid())
   project   Project      @relation(fields: [projectId], references: [id])
   projectId String
-
   name      String
   goal      String?
-
   startDate DateTime
   endDate   DateTime
   status    SprintStatus @default(PLANNED)
-
   tasks     Task[]
+  comments  Comment[]    // Comments can be made on sprints
 
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
 }
 
 model Task {
-  id          String        @id @default(cuid())
-
-  project     Project       @relation(fields: [projectId], references: [id])
-  projectId   String
-
-  sprint      Sprint?       @relation(fields: [sprintId], references: [id])
-  sprintId    String?
-
-  title       String
-  description String?
-
-  type        TaskType
-  status      TaskStatus    @default(ASSIGNED)
-  priority    TaskPriority  @default(MEDIUM)
-
-  // Assignee & creator & reviewer
-  assignee    User?         @relation("AssignedTasks", fields: [assigneeId], references: [id])
-  assigneeId  String?
-
-  createdBy   User          @relation("CreatedTasks", fields: [createdById], references: [id])
-  createdById String
-
-  reviewer    User?         @relation("ReviewedTasks", fields: [reviewerId], references: [id])
-  reviewerId  String?
-
-  // Goal-based & duration-based fields
-  goal        String?       // describes the goal (for GOAL_BASED)
-  startDate   DateTime?     // for DURATION_BASED tasks
-  dueDate     DateTime?     // used to determine DUE status
-
+  id             String         @id @default(cuid())
+  project        Project        @relation(fields: [projectId], references: [id])
+  projectId      String
+  sprint         Sprint?        @relation(fields: [sprintId], references: [id])
+  sprintId       String?
+  title          String
+  description    String?
+  type           TaskType
+  status         TaskStatus     @default(ASSIGNED)
+  priority       TaskPriority   @default(MEDIUM)
+  assignee       User?          @relation("AssignedTasks", fields: [assigneeId], references: [id])
+  assigneeId     String?
+  createdBy      User           @relation("CreatedTasks", fields: [createdById], references: [id])
+  createdById    String
+  reviewer       User?          @relation("ReviewedTasks", fields: [reviewerId], references: [id])
+  reviewerId     String?
+  goal           String?
+  startDate      DateTime?
+  dueDate        DateTime?
   estimatedHours Float?
   actualHours    Float?
 
   // Relations
-  statusHistory TaskStatusHistory[]
-  comments      TaskComment[]
-  attachments   TaskAttachment[]
-  labels        TaskLabel[]
+  attachments    TaskAttachment[]
+  labels         TaskLabel[]
+  comments       Comment[]      // Replaced TaskComment
+  activities     Activity[]     // Replaced TaskStatusHistory
 
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
-  deletedAt   DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  deletedAt      DateTime?
 }
 
 // =========================
-// Tracking & collaboration
+// NEW: Change Management
 // =========================
 
-model TaskStatusHistory {
-  id          String      @id @default(cuid())
+model ChangeRequest {
+  id          String                @id @default(cuid())
+  project     Project               @relation(fields: [projectId], references: [id])
+  projectId   String
+  proposer    User                  @relation(fields: [proposerId], references: [id])
+  proposerId  String
+  title       String
+  description String
+  status      ChangeRequestStatus   @default(PENDING)
+  approvals   ChangeRequestApproval[]
+  comments    Comment[]
+  activities  Activity[]
 
-  task        Task        @relation(fields: [taskId], references: [id])
-  taskId      String
-
-  fromStatus  TaskStatus?
-  toStatus    TaskStatus
-
-  changedBy   User        @relation(fields: [changedById], references: [id])
-  changedById String
-
-  changedAt   DateTime    @default(now())
-  note        String?
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
 }
 
-model TaskComment {
-  id        String   @id @default(cuid())
+model ChangeRequestApproval {
+  id              String         @id @default(cuid())
+  changeRequest   ChangeRequest  @relation(fields: [changeRequestId], references: [id])
+  changeRequestId String
+  reviewer        User           @relation(fields: [reviewerId], references: [id])
+  reviewerId      String
+  status          ApprovalStatus @default(PENDING)
+  comment         String?
 
-  task      Task     @relation(fields: [taskId], references: [id])
-  taskId    String
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
 
-  author    User     @relation(fields: [authorId], references: [id])
-  authorId  String
-
-  body      String
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  @@unique([changeRequestId, reviewerId])
 }
+
+// =========================
+// NEW: Generic Collaboration & Audit
+// =========================
+
+model Comment {
+  id         String   @id @default(cuid())
+  author     User     @relation(fields: [authorId], references: [id])
+  authorId   String
+  body       String   @db.Text
+
+  // Polymorphic relation
+  targetId   String
+  targetType String // e.g., "Task", "Project", "ChangeRequest", "Sprint"
+
+  // Relations to specific models (optional)
+  task           Task?           @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId         String?
+  project        Project?        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId      String?
+  sprint         Sprint?         @relation(fields: [sprintId], references: [id], onDelete: Cascade)
+  sprintId       String?
+  changeRequest  ChangeRequest?  @relation(fields: [changeRequestId], references: [id], onDelete: Cascade)
+  changeRequestId String?
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([targetId, targetType])
+}
+
+model Activity {
+  id          String       @id @default(cuid())
+  actor       User         @relation(fields: [actorId], references: [id])
+  actorId     String
+  type        ActivityType
+  details     Json? // Store before/after values, e.g., { "from": "IN_PROGRESS", "to": "DONE" }
+
+  // Polymorphic relation
+  targetId    String
+  targetType  String // e.g., "Task", "Project", "ChangeRequest"
+
+  // Relations to specific models (optional)
+  task           Task?           @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId         String?
+  project        Project?        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId      String?
+  changeRequest  ChangeRequest?  @relation(fields: [changeRequestId], references: [id], onDelete: Cascade)
+  changeRequestId String?
+
+  createdAt   DateTime     @default(now())
+
+  @@index([targetId, targetType])
+}
+
+
+// =========================
+// Attachments & Labels
+// =========================
 
 model TaskAttachment {
   id        String   @id @default(cuid())
-
   task      Task     @relation(fields: [taskId], references: [id])
   taskId    String
-
   url       String
   fileName  String
   mimeType  String?
   sizeBytes Int?
-
   createdAt DateTime @default(now())
 }
 
-// =========================
-// Labels / tags
-// =========================
-
 model Label {
   id        String     @id @default(cuid())
-
   org       Organization @relation(fields: [orgId], references: [id])
   orgId     String
-
   name      String
   color     String?
-
   tasks     TaskLabel[]
-
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
 
@@ -280,7 +359,6 @@ model Label {
 model TaskLabel {
   task    Task  @relation(fields: [taskId], references: [id])
   taskId  String
-
   label   Label @relation(fields: [labelId], references: [id])
   labelId String
 

@@ -1,9 +1,8 @@
-require('dotenv').config()
+module.exports = {
+  // Other Prisma configuration options can be added here in the future
+  // For example, you might want to configure logging
+  log: ['query', 'info', 'warn', 'error'],
 
-exports.default = {
-  datasources: {
-    db: {
-      url: process.env.DATABASE_URL
-    }
-  }
-}
+  // Or define custom generators
+  // generators: [ ... ],
+};
